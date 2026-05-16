@@ -1,32 +1,8 @@
-"""
-routers/recommendations.py
-===========================
-Router de recomendaciones.
-
-Endpoint: POST /recommendations
-Contrato de entrada (desde SwipeService.getRecommendations en NestJS):
-  {
-    "user_id":       str,
-    "exclude_users": list[str],
-    "limit":         int
-  }
-
-Contrato de salida esperado por NestJS:
-  {
-    "recommendations": [
-      {
-        "user_id":        str,
-        "similarity_score": float,   // proba(match=1) en modelo supervisado
-        "distance_info":  { "distance_km": float }
-      }
-    ]
-  }
-
-NestJS procesa mlResponse.data.recommendations y accede a:
-  - rec.user_id          → para enrichRecommendations
-  - rec.similarity_score → mapeado a matchScore en RecommendedUserDTO
-  - rec.distance_info.distance_km → mapeado a distance en RecommendedUserDTO
-"""
+# routers/recommendations.py
+# CAMBIOS:
+#   - RecommendationRequest acepta `offset` (paginación)
+#   - limit máximo sube a 50
+#   - offset se pasa a registry.get_recommendations
 
 import logging
 from fastapi import APIRouter, HTTPException
@@ -41,7 +17,8 @@ router = APIRouter()
 class RecommendationRequest(BaseModel):
     user_id: str
     exclude_users: list[str] = Field(default_factory=list)
-    limit: int = Field(default=10, ge=1, le=100)
+    limit: int = Field(default=20, ge=1, le=50)   # default 20, máx 50
+    offset: int = Field(default=0, ge=0)            # ← nuevo campo de paginación
 
 
 class DistanceInfo(BaseModel):
@@ -56,39 +33,46 @@ class RecommendedUser(BaseModel):
 
 class RecommendationResponse(BaseModel):
     recommendations: list[RecommendedUser]
+    total: int = 0          # ← total disponible (útil para saber si hay más páginas)
+    offset: int = 0
+    limit: int = 20
 
 
 @router.post("/recommendations", response_model=RecommendationResponse)
 async def get_recommendations(body: RecommendationRequest):
     """
-    Genera recomendaciones para un usuario usando el modelo activo.
+    Genera recomendaciones paginadas para un usuario usando el modelo activo.
 
-    Comportamiento:
-      - Si hay modelo supervisado (≥50 pares etiquetados):
-          ordena candidatos por P(match=1) descendente
-      - Si no hay suficientes datos:
-          usa NearestNeighbors sobre TF-IDF (filtrado por contenido)
-          y loguea un warning (transparente para NestJS)
+    Paginación:
+      - limit: cuántos traer (máx 50)
+      - offset: desde qué posición empezar
 
-    En ambos casos el contrato de respuesta es idéntico.
-    La lógica de reintentar con syncUserToMLService en NestJS se activa
-    cuando este endpoint retorna 404; aquí retornamos siempre 200 con
-    lista vacía en caso de error para evitar ese flujo innecesariamente.
+    El contrato de respuesta incluye `total` para que NestJS/Flutter
+    sepa si hay más páginas disponibles.
     """
     logger.info(
         f"📥 /recommendations - user={body.user_id}, "
-        f"exclude={len(body.exclude_users)}, limit={body.limit}"
+        f"exclude={len(body.exclude_users)}, limit={body.limit}, offset={body.offset}"
     )
 
     registry = ModelRegistry.get_instance()
 
-    recommendations = await registry.get_recommendations(
+    # Pedimos limit+offset al modelo para poder paginar correctamente.
+    # Si el modelo ya soporta offset nativamente, pásalo directo.
+    # Si no, pedimos todos hasta offset+limit y sliceamos aquí.
+    all_recommendations = await registry.get_recommendations(
         user_id=body.user_id,
         exclude_users=body.exclude_users,
-        limit=body.limit,
+        limit=body.limit + body.offset,  # pedimos suficiente para cubrir el offset
     )
 
-    logger.info(f"📤 Retornando {len(recommendations)} recomendaciones para {body.user_id}")
+    total = len(all_recommendations)
+    paginated = all_recommendations[body.offset : body.offset + body.limit]
+
+    logger.info(
+        f"📤 Retornando {len(paginated)}/{total} recomendaciones "
+        f"para {body.user_id} (offset={body.offset})"
+    )
 
     return RecommendationResponse(
         recommendations=[
@@ -99,6 +83,9 @@ async def get_recommendations(body: RecommendationRequest):
                     distance_km=r.get("distance_info", {}).get("distance_km", 0.0)
                 ),
             )
-            for r in recommendations
-        ]
+            for r in paginated
+        ],
+        total=total,
+        offset=body.offset,
+        limit=body.limit,
     )

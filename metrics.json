@@ -1,0 +1,20 @@
+{
+  "model": "random_forest",
+  "n_pairs": 1501,
+  "n_users": 2081,
+  "positives": 501,
+  "negatives": 1000,
+  "min_pairs_threshold": 2,
+  "cv_folds_used": 2,
+  "cv_f1_scores": {
+    "knn": 0.8650155310680414,
+    "random_forest": 0.9742139450232208
+  },
+  "train_metrics": {
+    "accuracy": 0.9927,
+    "precision": 0.9785,
+    "recall": 1.0,
+    "f1": 0.9891
+  },
+  "trained_at": "2026-05-16T19:00:03.471352Z"
+}
