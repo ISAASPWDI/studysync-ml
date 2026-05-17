@@ -21,8 +21,15 @@ def get_db() -> AsyncIOMotorDatabase:
     global _client, _db
     if _db is None:
         logger.info(f"📦 Conectando a MongoDB: {DATABASE_NAME}")
-        logger.info(f"   URI: {MONGODB_URI[:40]}...")  # log parcial por seguridad
-        _client = AsyncIOMotorClient(MONGODB_URI)
+        logger.info(f"   URI: {MONGODB_URI[:40]}...")
+        _client = AsyncIOMotorClient(
+            MONGODB_URI,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=10000,
+            maxPoolSize=1,
+            retryWrites=True,
+        )
         _db = _client[DATABASE_NAME]
     return _db
 

@@ -15,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers import recommendations, users, admin
 from core.model_registry import ModelRegistry
+import asyncio
+from core.database import get_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,12 +28,32 @@ logger = logging.getLogger("studysync.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Iniciando StudySync ML Service...")
+    
     registry = ModelRegistry.get_instance()
     await registry.load_from_disk()
+    db = get_db()
+    try:
+        await db.command("ping")
+        logger.info("✅ MongoDB conectado")
+    except Exception as e:
+        logger.warning(f"⚠️ MongoDB ping falló al inicio: {e}")
+    async def keep_mongo_alive():
+        while True:
+            await asyncio.sleep(240)
+            try:
+                await db.command("ping")
+                logger.info("💓 MongoDB keep-alive OK")
+            except Exception as e:
+                logger.warning(f"⚠️ MongoDB keep-alive falló: {e}")
+    
+    task = asyncio.create_task(keep_mongo_alive())
+    
     logger.info("✅ ML Service listo")
     yield
+    
+    # Shutdown
+    task.cancel()
     logger.info("🛑 Apagando ML Service...")
-
 
 app = FastAPI(
     title="StudySync ML Service",
@@ -67,6 +89,6 @@ async def get_stats():
     return ModelRegistry.get_instance().get_stats()
 
 
-@app.get("/health")
+@app.get("/")
 async def health():
     return {"status": "ok", "service": "studysync-ml", "version": "2.0.0"}

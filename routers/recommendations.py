@@ -17,7 +17,7 @@ router = APIRouter()
 class RecommendationRequest(BaseModel):
     user_id: str
     exclude_users: list[str] = Field(default_factory=list)
-    limit: int = Field(default=20, ge=1, le=50)   # default 20, máx 50
+    limit: int = Field(default=50, ge=1, le=50)   # default 20, máx 50
     offset: int = Field(default=0, ge=0)            # ← nuevo campo de paginación
 
 
