@@ -92,3 +92,7 @@ async def get_stats():
 @app.get("/")
 async def health():
     return {"status": "ok", "service": "studysync-ml", "version": "2.0.0"}
+
+@app.head("/")  
+async def health_head():
+    return {}
