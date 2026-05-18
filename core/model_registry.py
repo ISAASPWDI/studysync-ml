@@ -55,15 +55,17 @@ class ModelRegistry:
 
     def __init__(self):
         self.state: ModelState = ModelState.UNINITIALIZED
-        self.model: Any = None              # Pipeline sklearn (supervisado)
+        self.model: Any = None
         self.model_name: str = "none"
         self.vectorizers: AcademicVectorizers = AcademicVectorizers()
-        self.fallback_nn: Any = None        # NearestNeighbors
-        self.fallback_tfidf: Any = None     # TfidfVectorizer del fallback
+        self.fallback_nn: Any = None
+        self.fallback_tfidf: Any = None
         self.fallback_user_ids: list[str] = []
         self.metrics: dict = {}
         self.n_pairs: int = 0
         self._lock = asyncio.Lock()
+        self._cache: dict = {}
+        self._cache_ttl: int = 300 
 
     @classmethod
     def get_instance(cls) -> "ModelRegistry":
@@ -109,6 +111,7 @@ class ModelRegistry:
         Lógica interna de (re)entrenamiento.
         Actualiza el estado del registry según el resultado.
         """
+        self._cache.clear() 
         new_vecs = AcademicVectorizers()
         result = await train_supervised_model(new_vecs)
 
@@ -172,22 +175,28 @@ class ModelRegistry:
         exclude_users: list[str],
         limit: int,
     ) -> list[dict]:
-        """
-        Genera recomendaciones para user_id excluyendo exclude_users.
+        import time
 
-        Retorna lista de dicts compatibles con el contrato NestJS:
-          { user_id, similarity_score, distance_info: { distance_km } }
+        cache_key = f"{user_id}:{limit}"
+        cached = self._cache.get(cache_key)
 
-        Despacha a _supervised_recommendations o _fallback_recommendations
-        según el estado actual del registry.
-        """
+        if cached and (time.time() - cached["ts"]) < self._cache_ttl:
+            logger.debug(f"💾 Cache hit para {user_id}")
+            excluded_set = set(exclude_users) | {user_id}
+            filtered = [r for r in cached["data"] if r["user_id"] not in excluded_set]
+            return filtered[:limit]
+
+        # Cache miss → computar
         if self.state == ModelState.SUPERVISED:
-            return await self._supervised_recommendations(user_id, exclude_users, limit)
+            results = await self._supervised_recommendations(user_id, exclude_users, limit)
         elif self.state == ModelState.FALLBACK:
-            return await self._fallback_recommendations(user_id, exclude_users, limit)
+            results = await self._fallback_recommendations(user_id, exclude_users, limit)
         else:
             logger.error("❌ Modelo no inicializado")
             return []
+
+        self._cache[cache_key] = {"data": results, "ts": time.time()}
+        return results
 
     async def _supervised_recommendations(
         self,
