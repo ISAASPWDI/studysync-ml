@@ -333,14 +333,16 @@ class ModelRegistry:
     # -----------------------------------------------------------------------
 
     async def sync_user(self, user_id: str, force_reload: bool = False) -> dict:
-        """
-        Sincroniza un usuario desde MongoDB al caché de vectorizadores.
-        Si force_reload=True, recarga el documento desde DB aunque ya exista.
-        """
         if not force_reload and user_id in self.vectorizers._user_cache:
             return {"status": "already_synced", "user_id": user_id}
 
         await self._sync_single_user(user_id)
+
+        keys_to_delete = [k for k in self._cache if k.startswith(user_id)]
+        for k in keys_to_delete:
+            del self._cache[k]
+        if keys_to_delete:
+            logger.info(f"🗑️ Cache invalidado para {user_id} ({len(keys_to_delete)} entradas)")
 
         if user_id in self.vectorizers._user_cache:
             return {"status": "synced", "user_id": user_id}
@@ -367,9 +369,18 @@ class ModelRegistry:
         Re-sincroniza todos los usuarios desde MongoDB al caché.
         No re-entrena el modelo; solo actualiza el caché de vectorizadores.
         """
+        self._cache.clear()
         users = await fetch_all_users()
+        valid_ids = {u["_id"] for u in users}
         synced = 0
         failed = 0
+
+        orphans = [uid for uid in list(self.vectorizers._user_cache.keys()) 
+               if uid not in valid_ids]
+        for uid in orphans:
+            del self.vectorizers._user_cache[uid]
+        if orphans:
+            logger.info(f"🧹 {len(orphans)} usuarios huérfanos eliminados del cache")
 
         for user in users:
             try:
