@@ -78,10 +78,6 @@ class ModelRegistry:
     # -----------------------------------------------------------------------
 
     async def load_from_disk(self) -> None:
-        """
-        Intenta cargar un modelo previo desde disco.
-        Si no existe, entrena uno nuevo o activa el fallback.
-        """
         async with self._lock:
             payload = load_model_from_disk()
 
@@ -92,8 +88,29 @@ class ModelRegistry:
                 self.state = ModelState.SUPERVISED
                 logger.info("✅ Modelo supervisado cargado desde disco")
             else:
-                # Primera vez: intentar entrenar
                 await self._train_and_update()
+
+            await self._warmup_cache()
+
+    async def _warmup_cache(self) -> None:
+        """Precalienta el cache al arrancar para que la primera petición real sea rápida."""
+        import time
+        try:
+            user_ids = self.vectorizers.get_user_ids()
+            if not user_ids:
+                logger.warning("⚠️ Warmup: sin usuarios en cache")
+                return
+
+            logger.info(f"🔥 Warmup: precalentando cache para {len(user_ids)} usuarios...")
+            first_user = user_ids[0]
+            results = await self.get_recommendations(
+                user_id=first_user,
+                exclude_users=[],
+                limit=50,
+            )
+            logger.info(f"✅ Warmup completo: {len(results)} recomendaciones pre-calculadas")
+        except Exception as e:
+            logger.warning(f"⚠️ Warmup falló (no crítico): {e}")
 
     async def retrain(self) -> dict:
         """
