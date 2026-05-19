@@ -35,7 +35,7 @@ class RecommendationResponse(BaseModel):
     recommendations: list[RecommendedUser]
     total: int = 0          # ← total disponible (útil para saber si hay más páginas)
     offset: int = 0
-    limit: int = 20
+    limit: int = 50
 
 
 @router.post("/recommendations", response_model=RecommendationResponse)
