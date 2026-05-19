@@ -93,7 +93,6 @@ class ModelRegistry:
             await self._warmup_cache()
 
     async def _warmup_cache(self) -> None:
-        """Precalienta el cache al arrancar para que la primera petición real sea rápida."""
         import time
         try:
             user_ids = self.vectorizers.get_user_ids()
@@ -101,14 +100,19 @@ class ModelRegistry:
                 logger.warning("⚠️ Warmup: sin usuarios en cache")
                 return
 
-            logger.info(f"🔥 Warmup: precalentando cache para {len(user_ids)} usuarios...")
-            first_user = user_ids[0]
-            results = await self.get_recommendations(
-                user_id=first_user,
-                exclude_users=[],
-                limit=50,
-            )
-            logger.info(f"✅ Warmup completo: {len(results)} recomendaciones pre-calculadas")
+            logger.info(f"🔥 Warmup: precalentando {len(user_ids)} usuarios...")
+            
+            for user_id in user_ids:
+                try:
+                    await self.get_recommendations(
+                        user_id=user_id,
+                        exclude_users=[],
+                        limit=50,
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Warmup falló para {user_id}: {e}")
+            
+            logger.info(f"✅ Warmup completo: {len(user_ids)} usuarios pre-calculados")
         except Exception as e:
             logger.warning(f"⚠️ Warmup falló (no crítico): {e}")
 
@@ -194,7 +198,7 @@ class ModelRegistry:
     ) -> list[dict]:
         import time
 
-        cache_key = f"{user_id}:{limit}"
+        cache_key = f"{user_id}"
         cached = self._cache.get(cache_key)
 
         if cached and (time.time() - cached["ts"]) < self._cache_ttl:

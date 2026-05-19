@@ -63,7 +63,7 @@ async def get_recommendations(body: RecommendationRequest):
     all_recommendations = await registry.get_recommendations(
         user_id=body.user_id,
         exclude_users=body.exclude_users,
-        limit=body.limit + body.offset,  # pedimos suficiente para cubrir el offset
+         limit=50,
     )
 
     total = len(all_recommendations)
